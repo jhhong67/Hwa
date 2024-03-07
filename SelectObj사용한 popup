@@ -1,0 +1,242 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using WeifenLuo.WinFormsUI.Docking;
+using System.Collections;
+using FarPoint.Win.Spread;
+using System.Text.RegularExpressions;
+using Hwacheon;
+
+namespace HwacheonApp
+{
+    public partial class B3DC01A2Sub_SW : Form
+    {
+        Hwa Hwa = new Hwa();
+        Num Num = new Num();
+
+        SheetView spd, spdB, spdC;
+        public string Itnbr, JobDate = "";
+
+        public B3DC01A2Sub_SW()
+        {
+            InitializeComponent();
+            spd = spdData.ActiveSheet;
+            spdB = spdData2.ActiveSheet;
+            spdC = spdData3.ActiveSheet;
+        }
+
+        private void Form_Load(object sender, EventArgs e)
+        {
+            label3.Text = label3.Text.Replace("@@", Hwa.CvtDate(JobDate).ToString("MM"));
+            lblTitle.Text = lblTitle.Text.Replace("@@", Num.DateFormat(JobDate));
+
+            ReadData();
+            
+        }
+
+        private void ReadData()
+        {
+            string strSql="";
+            int totalQty = 0;
+            double totalAmt = 0;
+            double totalSAmt = 0;
+            
+
+            SheetView spd = spdData.ActiveSheet;
+            spd.RowCount = 0; spdB.RowCount = 0; spdC.RowCount = 0;
+
+            strSql = " Declare @JobDate varchar(8) = '" + JobDate + "'" + "\r"
+                   + "  Select Case  When item_goja='U'  then 'A' When item_goja='V' Then 'B' " + "\r"
+                   + "              When item_goja = '1'  then 'C' End Gub" + "\r"
+                   + "         ,(select vndName from AFACMAN..aavndor Z where A.cusno = Z.vndnr) vndName" + "\r"
+                   + "         ,(select StItd from AAstkij Z where A.KStItn = Z.stitn And A.item_goja = Z.FacId )kiname" + "\r"
+                   + "         ,(select sawon_name from smm002 Z where A.sawon_id = Z.sawon_id And tesa_chk<>'T')sawonNm" + "\r"
+                   + "         ,(select pame_name from smm004 Z where A.pame_id = Z.pame_id)pame_name" + "\r"
+                   + "         ,(select pame_seq from smm004 Z where A.pame_id = Z.pame_id)pame_seq" + "\r"
+                   + "         ,suju_Qty,(suju_amt / 1.1) suju_amt, suju_date, A.sawon_id,suju_stat stat, dued_date" + "\r"
+                   + "    From SCH001 A" + "\r"
+                   + "   Where item_goja in('U', 'V', '1') And MSGub = 'M'  And SjChk<>'N' And suju_stat<>'6' And Suju_date = @JobDate" + "\r"
+                   + "   Order by gub, pame_seq, sawon_id" + "\r"
+                   + "\r";
+
+            strSql += " Select suju_Qty,(suju_amt/1.1) suju_amt, suju_date, A.sawon_id,FIpRsn,ManuLang,DCusNo,PlateLang" + "\r"
+                   + "                 ,Case When item_goja = 'U'  then 'A' When item_goja = 'V' Then 'B'" + "\r"
+                   + "                       When item_goja = '1'  then 'C' End Gub" + "\r"
+                   + "                 ,(select vndName from AFACMAN..aavndor Z where A.cusno = Z.vndnr) vndName" + "\r"
+                   + "                 ,(select StItd from AAstkij Z where A.KStItn = Z.stitn And A.item_goja = Z.FacId )kiname" + "\r"
+                   + "                 ,(select sawon_name from smm002 Z where A.sawon_id = Z.sawon_id And tesa_chk<>'T')sawonNm" + "\r"
+                   + "                 ,(select pame_name from smm004 Z where A.pame_id = Z.pame_id)pame_name" + "\r"
+                   + "                 ,(select pame_seq from smm004 Z where A.pame_id = Z.pame_id)pame_seq, dued_date, sugum_sum" + "\r"
+                   + "          Into #JobTbl " + "\r"
+                   + "    From VW_SCH001Allsu A" + "\r"
+                   + "   Where item_goja in('U', 'V', '1')  And MSGub = 'M' And ConfStat In('@', 'A', 'B', 'C', 'W', 'X', 'F') And suju_stat<>'6' And update_chk<>'X'" + "\r"
+                   + "         And Not Exists(Select * From SCH001 Z Where Z.suju_no = A.suju_no)" + "\r"
+                   + "         Select* From #JobTbl Order by gub, pame_seq, sawon_id" + "\r"
+                   + "         Drop table #JobTbl" + "\r"
+                   + "\r";
+
+            strSql +=" Declare @JobMDate varchar(6) = '" + Hwa.Left(JobDate,6) + "'" + "\r"
+                   + "  Select Case  When item_goja='U'  then 'A' When item_goja='V' Then 'B'" + "\r"
+                   + "                When item_goja = '1'  then 'C' End Gub" + "\r"
+                   + "                 , sum(suju_Qty)suju_Qty,sum(suju_amt) suju_amt" + "\r"
+                   + "          From SCH001 A" + "\r"
+                   + "   Where item_goja in('U', 'V', '1') And MSGub = 'M'  And SjChk<>'N' And suju_stat<>'6'  And Suju_date like  @JobMDate + '%'" + "\r"
+                   + "   Group by A.item_goja" + "\r"
+                   + "   Order by Gub" + "\r"
+                   + "\r";
+
+            SelectObj recObj = new SelectObj(HwaDb.SDb, strSql);
+
+            string Gub = "";
+            int rowPp = 0;
+            string currentGub = null;
+            int startRow = 0;
+
+            while (recObj.Read())
+            {
+                string newGub = Hwa.Trim(recObj["Gub"]);
+                if (currentGub == null || newGub != currentGub)
+                {
+                    if (currentGub != null)
+                    {
+                        int spanRowCount = spd.RowCount - startRow;
+                        spd.AddSpanCell(startRow, 0, spanRowCount, 1);
+                    }
+                    currentGub = newGub;
+                    startRow = spd.RowCount;
+                }
+                rowPp = spd.RowCount++;
+                spd.Cells[rowPp, 0].Value = (newGub == "A") ? "광주"
+                                          : (newGub == "B") ? "창원"
+                                          : (newGub == "C") ? "OEM"
+                                          : "Gub : " + newGub;
+                spd.Cells[rowPp, 1].Value = Hwa.Trim(recObj["pame_name"]);
+                spd.Cells[rowPp, 2].Value = Hwa.Trim(recObj["sawonNm"]);
+                spd.Cells[rowPp, 3].Value = Hwa.Trim(recObj["vndName"]);
+                spd.Cells[rowPp, 4].Value = Hwa.Trim(recObj["kiname"]);
+                spd.Cells[rowPp, 5].Value = Num.NumFormat(recObj["suju_Qty"]);
+                spd.Cells[rowPp, 6].Value = Num.NumFormat(recObj["suju_amt"]);
+                spd.Cells[rowPp, 7].Value = Num.DateFormat(recObj["dued_date"]);
+                totalQty += int.Parse(Hwa.Trim(recObj["suju_Qty"]));
+                totalAmt += double.Parse(Hwa.Trim(recObj["suju_amt"]));
+            }
+            if (currentGub != null)
+            {
+                int spanRowCount = spd.RowCount - startRow;
+                spd.AddSpanCell(startRow, 0, spanRowCount, 1);
+            }
+
+            int rowTotal = spd.RowCount;
+            spd.RowCount++; 
+            spd.Cells[rowTotal, 0].Value = "합계";
+            spd.Cells[rowTotal, 0].HorizontalAlignment = CellHorizontalAlignment.Center;
+            spd.Cells[rowTotal, 0].ColumnSpan = 5;
+            spd.Cells[rowTotal, 5].Value = Num.NumFormat(totalQty);
+            spd.Cells[rowTotal, 6].Value = Num.NumFormat(totalAmt);
+            spd.SetRowHeight(rowTotal, 25);
+            spd.Rows[rowTotal].BackColor = Color.Yellow;
+
+            recObj.NextResult();
+            totalQty = 0; totalAmt = 0;
+
+     
+
+            while (recObj.Read())
+            {
+                string newGub = Hwa.Trim(recObj["Gub"]);
+                if (currentGub == null || newGub != currentGub)
+                {
+                        if (currentGub != null)
+                    {
+                        int spanRowCount = rowPp - startRow + 1;
+                        spdB.AddSpanCell(startRow, 0, spanRowCount, 1);
+                    }
+                    currentGub = newGub;
+                    startRow = spdB.RowCount;
+                }
+                rowPp = spdB.RowCount++;
+                spdB.Cells[rowPp, 0].Value = (newGub == "A") ? "광주"
+                                          : (newGub == "B") ? "창원"
+                                          : (newGub == "C") ? "OEM"
+                                          : "Gub : " + newGub;
+                spdB.Cells[rowPp, 1].Value = Hwa.Trim(recObj["pame_name"]);
+                spdB.Cells[rowPp, 2].Value = Hwa.Trim(recObj["sawonNm"]);
+                spdB.Cells[rowPp, 3].Value = Hwa.Trim(recObj["vndName"]);
+                spdB.Cells[rowPp, 4].Value = Hwa.Trim(recObj["kiname"]);
+                spdB.Cells[rowPp, 5].Value = Hwa.Trim(recObj["suju_Qty"]);
+                spdB.Cells[rowPp, 6].Value = Num.NumFormat(recObj["suju_amt"]);
+                spdB.Cells[rowPp, 7].Value = Num.DateFormat(recObj["dued_date"]);
+                spdB.Cells[rowPp, 8].Value = Num.NumFormat(recObj["sugum_sum"]);
+                totalQty += int.Parse(Hwa.Trim(recObj["suju_Qty"]));
+                totalAmt += double.Parse(Hwa.Trim(recObj["suju_amt"]));
+                totalSAmt += double.Parse(Hwa.Trim(recObj["sugum_sum"]));
+            }
+            if (currentGub != null)
+            {
+                int spanRowCount = spdB.RowCount - startRow;
+                spdB.AddSpanCell(startRow, 0, spanRowCount, 1);
+            }
+            int rowTotal2 = spdB.RowCount;
+            spdB.RowCount++;
+            spdB.Cells[rowTotal2, 0].Value = "합계";
+            spdB.Cells[rowTotal2, 0].HorizontalAlignment = CellHorizontalAlignment.Center;
+            spdB.Cells[rowTotal2, 0].ColumnSpan = 5;
+            spdB.Cells[rowTotal2, 5].Value = Num.NumFormat(totalQty);
+            spdB.Cells[rowTotal2, 6].Value = Num.NumFormat(totalAmt);
+            spdB.Cells[rowTotal2, 8].Value = Num.NumFormat(totalSAmt);
+            spdB.SetRowHeight(rowTotal2, 25);
+            spdB.Rows[rowTotal2].BackColor = Color.Yellow;
+            recObj.NextResult();
+            totalQty = 0; totalAmt = 0; totalSAmt = 0;
+
+
+            while (recObj.Read())
+            {
+                rowPp = spdC.RowCount++;
+                Gub = Hwa.Trim(recObj["Gub"]);
+                spdC.Cells[rowPp, 0].Value = (Gub == "A") ? "광주"
+                                          : (Gub == "B") ? "창원"
+                                          : (Gub == "C") ? "OEM"
+                                          : "Gub : " + Gub
+                                          ; ;
+                spdC.Cells[rowPp, 1].Value = Num.NumFormat(recObj["suju_Qty"]);
+                spdC.Cells[rowPp, 2].Value = Num.NumFormat(recObj["suju_amt"]);
+                totalQty += int.Parse(Hwa.Trim(recObj["suju_Qty"]));
+                totalAmt += double.Parse(Hwa.Trim(recObj["suju_amt"]));
+            }
+            int rowTotal3 = spdC.RowCount;
+            spdC.RowCount++;
+            spdC.Cells[rowTotal3, 0].Value = "합계";
+            spdC.Cells[rowTotal3, 0].HorizontalAlignment = CellHorizontalAlignment.Center;
+            spdC.Cells[rowTotal3, 1].Value = Num.NumFormat(totalQty);
+            spdC.Cells[rowTotal3, 2].Value = Num.NumFormat(totalAmt);
+            spdC.SetRowHeight(rowTotal3, 25);
+            spdC.Rows[rowTotal3].BackColor = Color.Yellow;
+            recObj.Close();
+
+            spdC.SetRowHeight(-1, 25);
+            recObj.Close();
+        }
+
+        private void btnExit_Click(object sender, EventArgs e)
+        {
+            this.Close();
+        }
+
+        private void btnExit_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Escape)
+            {
+                this.Close();
+            }
+        }
+
+    }
+}
+
